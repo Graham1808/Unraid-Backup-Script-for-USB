@@ -1,0 +1,47 @@
+#!/bin/bash
+set -euo pipefail
+
+# ==== CONFIG ====
+SRC="/boot"
+DEST_BASE="/mnt/user/backups"
+RETENTION_DAYS=7
+
+# Folder name cannot contain "/" on Linux, so we use dd-mm-yyyy
+DATE_FOLDER="$(date +%d-%m-%Y)"
+DEST="${DEST_BASE}/${DATE_FOLDER}"
+
+# ==== SAFETY CHECKS ====
+if [[ ! -d "$SRC" ]]; then
+  echo "ERROR: Source not found: $SRC"
+  exit 1
+fi
+
+if [[ ! -d "$DEST_BASE" ]]; then
+  echo "ERROR: Destination base not found: $DEST_BASE"
+  echo "Make sure you have a user share named 'backups' mapped at /mnt/user/backups"
+  exit 1
+fi
+
+# Create today's backup folder
+mkdir -p "$DEST"
+
+echo "Backing up Unraid boot USB from '$SRC' to '$DEST' ..."
+
+# ==== BACKUP (exclude .git) ====
+rsync -a --delete \
+  --exclude='.git' --exclude='.git/' --exclude='**/.git' --exclude='**/.git/**' \
+  "${SRC}/" "${DEST}/"
+
+# Write a human-readable date marker in dd/mm/yyyy format (optional)
+printf "%s\n" "$(date +%d/%m/%Y)" > "${DEST}/BACKUP_DATE.txt"
+
+echo "Backup complete: $DEST"
+
+# ==== RETENTION CLEANUP ====
+echo "Cleaning up backups older than ${RETENTION_DAYS} days in '${DEST_BASE}' ..."
+
+# Delete backup folders older than RETENTION_DAYS
+# -mindepth/-maxdepth ensures we only delete immediate subfolders of DEST_BASE
+find "$DEST_BASE" -mindepth 1 -maxdepth 1 -type d -mtime +"$RETENTION_DAYS" -print -exec rm -rf -- {} +
+
+echo "Cleanup complete."
