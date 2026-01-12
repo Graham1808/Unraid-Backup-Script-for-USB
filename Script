@@ -6,9 +6,10 @@ SRC="/boot"
 DEST_BASE="/mnt/user/backups"
 RETENTION_DAYS=7
 
-# Folder name cannot contain "/" on Linux, so we use dd-mm-yyyy
+# Folder / archive date
 DATE_FOLDER="$(date +%d-%m-%Y)"
 DEST="${DEST_BASE}/${DATE_FOLDER}"
+ZIP_FILE="${DEST_BASE}/boot-backup-${DATE_FOLDER}.zip"
 
 # ==== SAFETY CHECKS ====
 if [[ ! -d "$SRC" ]]; then
@@ -22,26 +23,42 @@ if [[ ! -d "$DEST_BASE" ]]; then
   exit 1
 fi
 
+if ! command -v zip >/dev/null 2>&1; then
+  echo "ERROR: 'zip' command not found."
+  echo "On Unraid it is usually available. If not, install zip or use tar instead."
+  exit 1
+fi
+
 # Create today's backup folder
 mkdir -p "$DEST"
 
 echo "Backing up Unraid boot USB from '$SRC' to '$DEST' ..."
 
-# ==== BACKUP (exclude .git) ====
-rsync -a --delete \
-  --exclude='.git' --exclude='.git/' --exclude='**/.git' --exclude='**/.git/**' \
-  "${SRC}/" "${DEST}/"
+# ==== BACKUP (includes .git) ====
+rsync -a --delete "${SRC}/" "${DEST}/"
 
-# Write a human-readable date marker in dd/mm/yyyy format (optional)
+# Write a human-readable date marker
 printf "%s\n" "$(date +%d/%m/%Y)" > "${DEST}/BACKUP_DATE.txt"
 
 echo "Backup complete: $DEST"
 
+# ==== ZIP BACKUP ====
+echo "Creating ZIP archive: $ZIP_FILE"
+
+# Create zip from inside DEST_BASE so the zip contains just the folder, not full paths
+cd "$DEST_BASE"
+rm -f "$ZIP_FILE"
+zip -r "$ZIP_FILE" "$DATE_FOLDER" >/dev/null
+
+# OPTIONAL: remove uncompressed folder after zip
+rm -rf "$DEST"
+
+echo "ZIP created successfully: $ZIP_FILE"
+
 # ==== RETENTION CLEANUP ====
 echo "Cleaning up backups older than ${RETENTION_DAYS} days in '${DEST_BASE}' ..."
 
-# Delete backup folders older than RETENTION_DAYS
-# -mindepth/-maxdepth ensures we only delete immediate subfolders of DEST_BASE
-find "$DEST_BASE" -mindepth 1 -maxdepth 1 -type d -mtime +"$RETENTION_DAYS" -print -exec rm -rf -- {} +
+# Remove old zip files
+find "$DEST_BASE" -type f -name "boot-backup-*.zip" -mtime +"$RETENTION_DAYS" -print -exec rm -f -- {} +
 
 echo "Cleanup complete."
